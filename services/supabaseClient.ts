@@ -1,13 +1,14 @@
-
-import { AppIdea, ShowcaseApp } from '../types';
+import { AppIdea, ShowcaseApp, ForumPost, User } from '../types';
 
 // --- HACKATHON NOTE: MOCK SUPABASE CLIENT ---
 // This is a mock client that uses browser localStorage to simulate
 // a database and provide offline capabilities. For a real deployment,
 // you would replace this with the actual Supabase client.
 
-const IDEAS_STORAGE_KEY = 'infoKingIdeas';
+const IDEAS_STORAGE_KEY_PREFIX = 'infoKingIdeas_';
 const SHOWCASE_APPS_STORAGE_KEY = 'infoKingShowcaseApps';
+const FORUM_POSTS_STORAGE_KEY = 'infoKingForumPosts';
+const AUTH_STORAGE_KEY = 'infoKingUser';
 
 /**
  * --- HOW TO INTEGRATE REAL SUPABASE ---
@@ -31,12 +32,51 @@ const supabase = createClient(supabaseUrl, supabaseKey);
 // For example, tables 'ideas' and 'showcase_apps'.
 */
 
+// --- MOCK AUTHENTICATION ---
 
-// Mock implementation for App Ideas
-export const getIdeas = async (): Promise<AppIdea[]> => {
-  console.log("Mock Supabase: Fetching ideas from localStorage.");
+export const getCurrentUser = (): User | null => {
   try {
-    const storedIdeas = localStorage.getItem(IDEAS_STORAGE_KEY);
+    const userJson = localStorage.getItem(AUTH_STORAGE_KEY);
+    return userJson ? JSON.parse(userJson) : null;
+  } catch (error) {
+    console.error("Failed to parse user from localStorage", error);
+    return null;
+  }
+};
+
+export const signUp = async (email: string, password?: string): Promise<{ user: User | null; error: Error | null; }> => {
+  console.log("Mock Supabase: Signing up user", email, password);
+  // In a real scenario, you'd have validation and error handling here.
+  const newUser: User = { id: self.crypto.randomUUID(), email };
+  localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(newUser));
+  return { user: newUser, error: null };
+};
+
+export const signIn = async (email: string, password?: string): Promise<{ user: User | null; error: Error | null; }> => {
+  console.log("Mock Supabase: Signing in user", email, password);
+  // This mock simply creates a new user or "logs in" an existing one.
+  return signUp(email, password);
+};
+
+export const signInWithGoogle = async (): Promise<{ user: User | null; error: Error | null; }> => {
+  console.log("Mock Supabase: Signing in with Google");
+  // This mock creates a fake google user.
+  return signUp('user@google.com');
+};
+
+export const signOut = async () => {
+  console.log("Mock Supabase: Signing out user.");
+  localStorage.removeItem(AUTH_STORAGE_KEY);
+};
+
+
+// --- MOCK DATA STORE ---
+
+// Mock implementation for App Ideas (User-specific)
+export const getIdeas = async (userId: string): Promise<AppIdea[]> => {
+  if (!userId) return [];
+  try {
+    const storedIdeas = localStorage.getItem(`${IDEAS_STORAGE_KEY_PREFIX}${userId}`);
     return storedIdeas ? JSON.parse(storedIdeas) : [];
   } catch (error) {
     console.error("Failed to parse ideas from localStorage", error);
@@ -44,22 +84,28 @@ export const getIdeas = async (): Promise<AppIdea[]> => {
   }
 };
 
-export const addIdeas = async (newIdeas: AppIdea[]): Promise<AppIdea[]> => {
-  console.log("Mock Supabase: Saving new ideas to localStorage.");
-  const existingIdeas = await getIdeas();
+export const addIdeas = async (userId: string, newIdeas: AppIdea[]): Promise<AppIdea[]> => {
+  if (!userId) throw new Error("User must be logged in to save ideas.");
+  console.log(`Mock Supabase: Saving new ideas for user ${userId} to localStorage.`);
+  
+  if (newIdeas.length === 0) { // Handle clearing ideas
+     localStorage.setItem(`${IDEAS_STORAGE_KEY_PREFIX}${userId}`, JSON.stringify([]));
+     return [];
+  }
+
+  const existingIdeas = await getIdeas(userId);
   // Filter out any potential duplicates by problem statement
   const uniqueNewIdeas = newIdeas.filter(
     (newIdea) => !existingIdeas.some((existing) => existing.problem === newIdea.problem)
   );
 
   const allIdeas = [...uniqueNewIdeas, ...existingIdeas];
-  localStorage.setItem(IDEAS_STORAGE_KEY, JSON.stringify(allIdeas));
+  localStorage.setItem(`${IDEAS_STORAGE_KEY_PREFIX}${userId}`, JSON.stringify(allIdeas));
   return allIdeas;
 };
 
-// Mock implementation for Showcase Apps
+// Mock implementation for Showcase Apps (Public)
 export const getShowcaseApps = async (): Promise<ShowcaseApp[]> => {
-  console.log("Mock Supabase: Fetching showcase apps from localStorage.");
   try {
     const storedApps = localStorage.getItem(SHOWCASE_APPS_STORAGE_KEY);
     // Add some default apps if storage is empty for demonstration
@@ -85,4 +131,63 @@ export const addShowcaseApp = async (newApp: ShowcaseApp): Promise<ShowcaseApp[]
     const allApps = [newApp, ...existingApps];
     localStorage.setItem(SHOWCASE_APPS_STORAGE_KEY, JSON.stringify(allApps));
     return allApps;
+};
+
+// Mock implementation for Forum Posts (Public)
+export const getForumPosts = async (): Promise<ForumPost[]> => {
+  try {
+    const storedPosts = localStorage.getItem(FORUM_POSTS_STORAGE_KEY);
+    if (!storedPosts) {
+      // Add default posts if storage is empty
+      const defaultPosts: ForumPost[] = [
+        {
+          id: 'post-1',
+          createdAt: new Date(Date.now() - 86400000).toISOString(), // 1 day ago
+          author: 'Founder123',
+          content: 'Just had an idea for an app that uses AI to create personalized bedtime stories for kids. What do you all think?',
+          parentId: null,
+        },
+        {
+          id: 'post-2',
+          createdAt: new Date(Date.now() - 86000000).toISOString(),
+          author: 'CreativeCoder',
+          content: 'That sounds amazing! You could even let parents add names and favorite things to customize it further.',
+          parentId: 'post-1',
+        },
+        {
+          id: 'post-3',
+          createdAt: new Date(Date.now() - 172800000).toISOString(), // 2 days ago
+          author: 'ProductivityPro',
+          content: 'I used the AI to generate this idea for a time-blocking app that syncs with your energy levels. Check it out!',
+          idea: {
+            id: 'idea-mock-1',
+            problem: 'Users struggle to plan their day according to their natural energy cycles.',
+            solution: 'An AI-powered calendar that suggests tasks based on your peak productivity times.',
+            category: 'Productivity',
+            marketSizeScore: 85,
+          },
+          parentId: null,
+        },
+      ];
+      localStorage.setItem(FORUM_POSTS_STORAGE_KEY, JSON.stringify(defaultPosts));
+      return defaultPosts;
+    }
+    return JSON.parse(storedPosts);
+  } catch (error) {
+    console.error("Failed to parse forum posts from localStorage", error);
+    return [];
+  }
+};
+
+export const addForumPost = async (newPost: Omit<ForumPost, 'id' | 'createdAt'>): Promise<ForumPost[]> => {
+    console.log("Mock Supabase: Saving new forum post to localStorage.");
+    const existingPosts = await getForumPosts();
+    const postWithId: ForumPost = {
+        ...newPost,
+        id: self.crypto.randomUUID(),
+        createdAt: new Date().toISOString(),
+    };
+    const allPosts = [postWithId, ...existingPosts];
+    localStorage.setItem(FORUM_POSTS_STORAGE_KEY, JSON.stringify(allPosts));
+    return allPosts;
 };
